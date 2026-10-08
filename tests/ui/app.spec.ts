@@ -121,6 +121,10 @@ test('multi-file uploads ask about each overwrite and render completed tasks', a
     { name: 'beta.json', mimeType: 'application/json', buffer: Buffer.from('{}') },
     { name: 'fresh.txt', mimeType: 'text/plain', buffer: Buffer.from('new') },
   ]);
+  const uploadDialog = page.getByRole('dialog', { name: '上传文件', exact: true });
+  await expect(uploadDialog.getByRole('textbox', { name: '目标路径前缀' })).toHaveValue('');
+  expect(state.writes).toEqual([]);
+  await uploadDialog.getByRole('button', { name: '开始上传' }).click();
   const dialog = page.getByRole('dialog', { name: '覆盖已有文件？' });
   await expect(dialog).toContainText('alpha.txt');
   expect(state.writes).toEqual([]);
@@ -135,6 +139,80 @@ test('multi-file uploads ask about each overwrite and render completed tasks', a
   await expect(page.getByRole('button', { name: 'fresh.txt', exact: true })).toBeVisible();
   await tasks.getByRole('button', { name: '清除已结束' }).click();
   await expect(tasks.getByText('暂无传输任务')).toBeVisible();
+});
+
+test('upload paths default to the current directory, cancellation resets selection and an empty prefix targets the root', async ({ page }) => {
+  const state = await mockFiles(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '目录/', exact: true }).click();
+  await expect(page.getByRole('button', { name: '文件 + #%.txt', exact: true })).toBeVisible();
+  const file = { name: 'new.txt', mimeType: 'text/plain', buffer: Buffer.from('new') };
+  const dialog = page.getByRole('dialog', { name: '上传文件', exact: true });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '上传文件', exact: true }).click();
+  await (await chooser).setFiles(file);
+  await expect(dialog.getByRole('textbox', { name: '目标路径前缀' })).toHaveValue('目录/');
+  await expect(dialog.getByText('目录/new.txt', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '根目录', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  expect(state.writes).toEqual([]);
+  await expect(page.getByRole('button', { name: '根目录', exact: true })).toBeEnabled();
+  // Selecting the same file again should open a fresh dialog.
+  await page.getByLabel('选择上传文件').setInputFiles(file);
+  await expect(dialog.getByRole('textbox', { name: '目标路径前缀' })).toHaveValue('目录/');
+  await dialog.getByRole('button', { name: '开始上传' }).click();
+  await expect.poll(() => state.writes).toEqual(['目录/new.txt']);
+  await page.getByLabel('选择上传文件').setInputFiles(file);
+  await dialog.getByRole('textbox', { name: '目标路径前缀' }).fill('');
+  await expect(dialog.getByText('new.txt', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '开始上传' }).click();
+  await expect.poll(() => state.writes).toEqual(['目录/new.txt', 'new.txt']);
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'new.txt', exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '对象前缀' })).toHaveValue('目录/');
+});
+
+test('custom upload paths normalize the trailing slash and check overwrites at the final multi-file keys', async ({ page }) => {
+  const state = await mockFiles(page);
+  state.objects.set('备份/2026 + # %/alpha.txt', info('备份/2026 + # %/alpha.txt'));
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'alpha.txt', exact: true })).toBeVisible();
+  await page.getByLabel('选择上传文件').setInputFiles([
+    { name: 'alpha.txt', mimeType: 'text/plain', buffer: Buffer.from('replacement') },
+    { name: 'beta.json', mimeType: 'application/json', buffer: Buffer.from('{}') },
+  ]);
+  const dialog = page.getByRole('dialog', { name: '上传文件', exact: true });
+  await dialog.getByRole('textbox', { name: '目标路径前缀' }).fill('备份/2026 + # %');
+  await expect(dialog.getByText('备份/2026 + # %/alpha.txt', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('备份/2026 + # %/beta.json', { exact: true })).toBeVisible();
+  expect(state.writes).toEqual([]);
+  await dialog.getByRole('button', { name: '开始上传' }).click();
+  const overwrite = page.getByRole('dialog', { name: '覆盖已有文件？' });
+  await expect(overwrite).toContainText('备份/2026 + # %/alpha.txt');
+  await overwrite.getByRole('button', { name: '确认覆盖' }).click();
+  await expect(page.getByRole('region', { name: '传输任务' }).getByText('已完成', { exact: true })).toHaveCount(2);
+  expect(state.writes).toEqual(['备份/2026 + # %/alpha.txt', '备份/2026 + # %/beta.json']);
+  await expect(page.getByRole('textbox', { name: '对象前缀' })).toHaveValue('');
+});
+
+test('upload path validation measures the final key in UTF-8 bytes before starting requests', async ({ page }) => {
+  const state = await mockFiles(page);
+  const metadata: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/metadata')) metadata.push(request.url()); });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'alpha.txt', exact: true })).toBeVisible();
+  await page.getByLabel('选择上传文件').setInputFiles({ name: 'alpha.txt', mimeType: 'text/plain', buffer: Buffer.from('new') });
+  const dialog = page.getByRole('dialog', { name: '上传文件', exact: true });
+  await dialog.getByRole('textbox', { name: '目标路径前缀' }).fill('界'.repeat(339));
+  await expect(dialog).toContainText('1024 个 UTF-8 字节');
+  await expect(dialog.getByRole('button', { name: '开始上传' })).toBeDisabled();
+  expect(metadata).toEqual([]);
+  expect(state.writes).toEqual([]);
+  await dialog.getByRole('textbox', { name: '目标路径前缀' }).fill('界'.repeat(338));
+  await expect(dialog.getByRole('button', { name: '开始上传' })).toBeEnabled();
+  await dialog.getByRole('button', { name: '开始上传' }).click();
+  await expect.poll(() => state.writes).toEqual(['界'.repeat(338) + '/alpha.txt']);
 });
 
 test('mobile navigation switches buckets without causing viewport overflow', async ({ page }) => {

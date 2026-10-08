@@ -7,8 +7,9 @@
 - package 名称为 `hoshino-s-r2`，已同步 package 与锁文件；网页/README 品牌为 Hoshino R2。
 - 当前用户明确选用 **Mantine** 重构 UI，已完成 Mantine 9 + CSS Modules + Lucide 迁移，包含深浅主题和响应式导航。类型、构建、18 项原有测试、7 项新增 Chromium UI 测试及部署 dry-run 均通过。
 - 传输设置已按用户要求改为 Mantine Slider：`web/App.tsx` 标签“并发”，显示“n 路”，仅允许 1/2/4/6 档；保留可访问名称“下载并发”，支持键盘操作。
-- 最新要求已完成：文件默认普通下载。`web/components/BrowserPanel.tsx` 文件行“下载”主按钮是直接对象链接，由服务端 Content-Disposition 触发浏览器下载；“分片下载”移到更多操作菜单。降级提示、README 和下载 UI 测试已同步。
-- 用户要求全部提交，全部 38 个项目文件随本次初始提交保存（包含本交接）。没有推送或创建 PR；最新提交和工作区状态可用 `git log -1 --oneline`、`git status --short` 核实。
+- 文件默认普通下载。`web/components/BrowserPanel.tsx` 文件行“下载”主按钮是直接对象链接，由服务端 Content-Disposition 触发浏览器下载；“分片下载”移到更多操作菜单。降级提示、README 和下载 UI 测试已同步。
+- 最新要求已完成：网页上传可指定目标路径前缀（用户纠正“后缀”为“前缀”，确认指目标路径）。选择文件后打开上传弹窗，默认当前浏览位置；路径从桶根目录起算，空值表示根目录，非空末尾自动补 `/`。多文件共用前缀，预览最终 key，确认后才检查覆盖并上传，上传目标不改变浏览位置。
+- 此前按用户要求创建了包含 38 个项目文件的初始提交。此次用户要求全部提交，上传前缀实现、测试、README 和本交接共 5 个文件归档为 `feat: support upload destination prefixes`；最新提交及工作区状态用 `git log -1 --oneline`、`git status --short` 核实。
 - 尚未部署到真实 Cloudflare 账户：用户尚未提供账户/域名/桶/Access 配置。
 
 ## 用户确认的需求
@@ -19,6 +20,7 @@
 - API 由网页和命令行共用，提供方便的命令行提示。
 - 所有部署配置使用 **TOML**；公共配置与每个 fork 的 override 分离，支持部署到不同账户。
 - UI 使用 Mantine；现代中性色/蓝色强调的存储控制台，主题支持浅色/深色/跟随系统并记忆选择。
+- 网页上传支持单独编辑目标路径前缀，默认当前位置、可留空上传到根目录；显示逐文件最终路径预览，确认后开始上传。
 
 ## 已实现内容
 
@@ -49,6 +51,7 @@
 - `web/components/BrowserPanel.tsx`：面包屑、前缀/递归筛选、分页、Table/Checkbox（部分选中状态）、批量操作栏、文件操作 Menu、Skeleton 和空/错误状态。每行默认普通下载，分片下载在更多操作菜单中。
 - `web/components/FileDialogs.tsx`：详情 Drawer（KEY/ETag 复制）、aria2/curl Tabs 与命令复制 Dialog、浏览器分片下载降级提示。
 - `web/components/ConfirmDialog.tsx`：Promise 异步确认，替代原生 confirm；逐文件覆盖询问、单个/批量删除，默认聚焦取消，Escape/关闭视为拒绝，操作期间禁止切桶/目录以固定目标。
+- `web/components/UploadDialog.tsx`：Mantine 上传弹窗，目标路径编辑、尾部 `/` 补全、逐文件最终 key/大小预览；校验所有最终 key 不含 NUL 且最多 1024 个 UTF-8 字节。`web/App.tsx` 分离选择文件和开始上传；选择时固定桶并锁定导航，确认时固定分片大小，使用最终 key 检查同名任务/覆盖。取消不请求 API，重置文件输入以支持重新选择同一文件。
 - `web/components/TransfersPanel.tsx`：任务状态 Badge、Progress、速度、暂停/继续/重试/取消和清理。任务标记所属桶，同名上传检查限定于同一桶，引用队列避免连续添加文件时使用旧状态。
 - `web/App.module.css`、`web/style.css`、`web/vite-env.d.ts`：CSS Modules、深浅主题与响应式布局；移动端 280px 桶导航和遮罩，文件表格内部横向滚动，长 key 换行。
 - `vite.config.ts`：拆分 React/UI/应用 bundle，仅过滤 client-only SPA 中无意义的 use-client 模块指令提示，其余构建 warning 正常输出。
@@ -69,8 +72,11 @@
 
 ## 实际验证
 
-- 本次提交前核实 `git status --short`、`git diff`、`git diff --cached`、`git log --oneline -10`：仓库此前没有提交，项目内容均为未跟踪文件；已检查 38 个待提交文件列表、凭据特征和部署配置，仅有占位符/合成 fixture，无实际认证凭据。未跟踪文件空白检查通过。本次仅归档现有实现，复用下述最近验证结果。
-- 最新普通下载/Slider 改动：`npm run typecheck` 通过；使用下述浏览器环境变量运行 `npm run test:ui -- --grep 'regular download|download picker'`，2 项通过，包含真实 Vite 构建、普通下载事件/文件名（不打开分片弹窗或创建网页任务）、菜单分片下载和降级、Slider 键盘档位、用户点击手势和分片暂停/继续验证，且无 CSP violation。未重跑其余完整测试；下列完整验证和 bundle 大小为 Mantine 重构时的结果。
+- 本次上传前缀改动：`npm run typecheck` 通过；`FONTCONFIG_FILE=/tmp/opencode/fonts.conf LD_LIBRARY_PATH=/tmp/opencode/browser-libs/usr/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/playwright npm run test:ui`，10 项全部通过（包含真实 Vite 构建），每项无 CSP violation。新增 3 项测试覆盖真实上传按钮/文件选择、当前目录默认路径、取消与重新选择、空前缀根目录、特殊字符多文件路径/自动补 `/`/最终 key 覆盖确认，以及 1024 字节边界（UTF-8 而非字符数），保留原浏览目录。
+- 本次 `node --test tests/transfers.test.mjs`：4 项全部通过，包含 multipart 失败分片重试和排序完成、下载暂停/恢复/ETag/取消。`git diff --check`、`git diff --no-index --check /dev/null web/components/UploadDialog.tsx` 通过。未重跑完整 `npm test`、部署 dry-run 或真实云端部署；以下完整后端验证及 bundle 大小是此前结果。
+- 本轮提交前检查 `git status --short`、`git diff`、`git log --oneline -10`，以及新增上传组件内容：仅上述 5 个需求相关文件，无认证凭据；两项空白检查再次通过。本轮只提交已验证实现，复用上面的类型、UI 与传输测试结果。
+- 此前初始提交前核实 `git status --short`、`git diff`、`git diff --cached`、`git log --oneline -10`：当时仓库没有提交，检查 38 个待提交文件列表、凭据特征和部署配置，仅有占位符/合成 fixture，无实际认证凭据。未跟踪文件空白检查通过。
+- 此前普通下载/Slider 改动：`npm run typecheck` 通过；使用下述浏览器环境变量运行 `npm run test:ui -- --grep 'regular download|download picker'`，2 项通过，包含普通下载事件/文件名、菜单分片下载和降级、Slider 键盘档位、点击手势和分片暂停/继续验证。
 - `npm run typecheck`：通过。
 - `npm run build`：通过；JS 总计约596 kB / gzip184 kB（React/UI/应用分块，单块低于500 kB），CSS约258 kB / gzip39 kB。UI 测试在最后布局调整后也重新构建并通过。
 - `npm test`：18项全部通过。测试文件 `tests/config.test.mjs`、`api.test.mjs`、`transfers.test.mjs`、`dev.test.mjs`。
@@ -90,6 +96,8 @@
 - 未验证：真实 Cloudflare Access/账户部署、真实系统文件保存对话框及长时间超大文件落盘、Firefox/Safari/Edge 手工 UI 验收、实际平台CPU/内存指标、GitHub Actions远端执行。Chromium 下载测试使用模拟磁盘写入器，不代表真实保存对话框已验收。
 
 ## 下一步及工作区
+
+- 此次上传目标路径前缀需求已完成，无阻塞或待确认项。用户要求全部提交，归档文件：`web/App.tsx`、新增 `web/components/UploadDialog.tsx`、`tests/ui/app.spec.ts`、`README.md`、`HANDOFF.md`。提交后核实工作区；没有推送或创建 PR。
 
 1. 用户填写 fork 的 `deploy.override.toml`，创建对应 R2 桶、Access Application（覆盖整个 hostname）及 Allow/Service Auth policies。
 2. 执行 `npm run deploy -- --dry-run`，然后 `npm run deploy`；或配置 Actions secret 后手动触发部署。

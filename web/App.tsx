@@ -9,6 +9,7 @@ import { BrowserPanel } from './components/BrowserPanel';
 import { CommandDialog, DetailsDrawer, type CommandTarget } from './components/FileDialogs';
 import { useConfirmation } from './components/ConfirmDialog';
 import { TransfersPanel, type TaskEntry } from './components/TransfersPanel';
+import { UploadDialog, type UploadSelection } from './components/UploadDialog';
 import classes from './App.module.css';
 
 const emptyPage = (): Page => ({ objects: [], prefixes: [], truncated: false, cursor: null });
@@ -29,6 +30,7 @@ export function App() {
   const [error, setError] = useState('');
   const [details, setDetails] = useState<ObjectInfo | null>(null);
   const [commandTarget, setCommandTarget] = useState<CommandTarget | null>(null);
+  const [uploadSelection, setUploadSelection] = useState<UploadSelection | null>(null);
   const [entries, setEntries] = useState<TaskEntry[]>([]);
   const entriesRef = useRef(entries);
   const [, refresh] = useState(0);
@@ -112,14 +114,22 @@ export function App() {
 
   function setOperationBusy(value: boolean) { busyRef.current = value; setBusy(value); }
 
-  async function addFiles(files: FileList | null) {
+  function selectFiles(files: FileList | null) {
     if (!files?.length || busyRef.current || !bucket) return;
+    setOperationBusy(true);
+    setUploadSelection({ bucket, bucketLabel: bucketInfo?.label ?? bucket, prefix, files: Array.from(files) });
+    if (fileInput.current) fileInput.current.value = '';
+  }
+
+  function closeUpload() { setUploadSelection(null); setOperationBusy(false); }
+
+  async function addFiles(selection: UploadSelection, targetPrefix: string) {
+    setUploadSelection(null);
     setOperationBusy(true); setError('');
-    const targetBucket = bucket;
-    const targetPrefix = prefix;
+    const targetBucket = selection.bucket;
     const partSize = partMiB * 1024 * 1024;
     try {
-      for (const file of Array.from(files)) {
+      for (const file of selection.files) {
         const key = targetPrefix + file.name;
         if (Math.ceil(file.size / partSize) > 10000) throw new Error(`${file.name} 分片数超出 10,000，请提高分片大小`);
         if (entriesRef.current.some(entry => entry.bucket === targetBucket && entry.task.kind === 'upload' && entry.task.name === key && !['complete', 'cancelled'].includes(entry.task.state))) {
@@ -128,14 +138,14 @@ export function App() {
         let existing = false;
         try { await api(endpoint(targetBucket, 'metadata', { key })); existing = true; }
         catch (error) { if ((error as { status?: number }).status !== 404) throw error; }
-        if (existing && !await confirm({ title: '覆盖已有文件？', description: `存储桶：${bucketInfo?.label ?? targetBucket}。已有文件会被替换，此操作无法撤销。`, keys: [key], confirmLabel: '确认覆盖' })) continue;
+        if (existing && !await confirm({ title: '覆盖已有文件？', description: `存储桶：${selection.bucketLabel}。已有文件会被替换，此操作无法撤销。`, keys: [key], confirmLabel: '确认覆盖' })) continue;
         if (!mounted.current) return;
         start(upload(targetBucket, key, file, partSize, notify, () => {
           if (mounted.current) notifications.show({ title: '上传完成', message: `${key} · 点击刷新查看最新列表`, color: 'teal' });
         }), targetBucket);
       }
     } catch (error) { if (mounted.current) setError((error as Error).message); }
-    finally { if (mounted.current) setOperationBusy(false); if (fileInput.current) fileInput.current.value = ''; }
+    finally { if (mounted.current) setOperationBusy(false); }
   }
 
   async function remove(keys: string[]) {
@@ -241,7 +251,7 @@ export function App() {
           setFilter={setFilter} setFlat={value => { loadId.current++; setFlat(value); }} navigate={navigate} select={setSelected} load={more => void load(more)}
           upload={() => fileInput.current?.click()} details={setDetails} download={info => void startDownload(info)}
           command={(info, kind) => setCommandTarget({ bucket, key: info.key, kind })} remove={keys => void remove(keys)} />
-        <input ref={fileInput} type="file" multiple hidden aria-label="选择上传文件" onChange={event => void addFiles(event.currentTarget.files)} />
+        <input ref={fileInput} type="file" multiple hidden aria-label="选择上传文件" onChange={event => selectFiles(event.currentTarget.files)} />
         <TransfersPanel entries={entries} clear={() => {
           const next = entriesRef.current.filter(({ task }) => !['complete', 'cancelled'].includes(task.state)); entriesRef.current = next; setEntries(next);
         }} />
@@ -250,6 +260,7 @@ export function App() {
     </AppShell.Main>
     <DetailsDrawer info={details} onClose={() => setDetails(null)} />
     <CommandDialog target={commandTarget} onClose={() => setCommandTarget(null)} />
+    {uploadSelection && <UploadDialog selection={uploadSelection} onClose={closeUpload} onUpload={value => void addFiles(uploadSelection, value)} />}
     {dialog}
   </AppShell>;
 }
