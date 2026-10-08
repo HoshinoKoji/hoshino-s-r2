@@ -10,7 +10,9 @@
 - 文件默认普通下载。`web/components/BrowserPanel.tsx` 文件行“下载”主按钮是直接对象链接，由服务端 Content-Disposition 触发浏览器下载；“分片下载”移到更多操作菜单。降级提示、README 和下载 UI 测试已同步。
 - 网页上传可指定目标路径前缀（用户纠正“后缀”为“前缀”，确认指目标路径）。选择文件后打开上传弹窗，默认当前浏览位置；路径从桶根目录起算，空值表示根目录，非空末尾自动补 `/`。多文件共用前缀，预览最终 key，确认后才检查覆盖并上传，上传目标不改变浏览位置。
 - 本轮已完成并经测试：右上角设置/OpenAPI 入口、设置 Modal、仅含桶选择且隐藏滚动条的侧栏、分片大小 Slider、详情下载入口、弱化多选提示栏、完成任务速度固定、上传成功自动刷新当前桶/前缀。用户要求结束本轮并提交，提交状态在下方记录。
-- 已有初始提交及上传前缀提交 `0aa8d93 feat: support upload destination prefixes`；本轮提交可用 `git log -1 --oneline` 核实。
+- 最新要求：Checks GitHub Actions 太慢，改为仅手动触发。`.github/workflows/check.yml` 已移除 push/PR 触发，保留原检查步骤；部署工作流原本手动，不需要改动。`README.md` 已写明从 Actions → Checks → Run workflow 启动。
+- 最新配色要求已实现：用户要求浅蓝与 `#ffd6e7` 淡粉更自然地融合，原斜向线性渐变太突兀。`web/public/favicon.svg` 改为以右上角淡粉向左下角亮蓝 `#78beff` 柔和扩散的放射渐变，中间用浅粉和浅蓝逐步过渡；白云/白星芒保留细蓝描边。`web/App.tsx` header 与 favicon 使用同一 `/favicon.svg`。移动端仍显示 logo，320px 以下只收起品牌文字以保留操作入口。
+- 此前已提交上传前缀功能与 UI/传输改动（上一提交 `c11b363`）。本次用户要求把尚未提交的手动 Checks、favicon 与 header 品牌统一一并提交；最新提交用 `git log -1 --oneline` 核实。
 - 尚未部署到真实 Cloudflare 账户：用户尚未提供账户/域名/桶/Access 配置。
 
 ## 用户确认的需求
@@ -25,6 +27,7 @@
 - 设置与文档链接位于右上角；设置使用 Modal；sidebar 仅保留存储桶选择，隐藏滚动条并保留滚动能力。
 - 传输任务完成后速度显示固定；上传成功后自动刷新当前可见列表，不依赖手动点击刷新。
 - 分片大小设置同样使用 Slider；文件详情含下载操作；多选提示栏降低视觉强调。
+- 网站 favicon 与 header logo 共用一份浅蓝、淡粉、白配色的云朵 SVG；淡粉参考 `#ffd6e7`。
 
 ## 已实现内容
 
@@ -52,7 +55,7 @@
 ### 网页
 
 - `web/main.tsx`：MantineProvider、主题、Notifications、滚动锁定 nonce；`web/App.tsx`：状态与 API/传输协调、桶导航、设置、主题和账户菜单。
-- 本轮 `web/App.tsx`：右上角文档链接和设置按钮，设置 Modal 的分片大小 Slider 等距映射 8/16/32/64 MiB，并发 Slider 1/2/4/6 路；设置保留在 App 状态中。侧栏仅桶列表，鉴权状态移到账户菜单，打开设置时关闭移动导航。`web/App.module.css`：侧栏隐藏滚动条保留滚动；选择栏使用中性背景和紧凑间距；移动端头部缩减间距并隐藏品牌云图标。`README.md` 已同步。
+- `web/App.tsx`：右上角文档链接和设置按钮，设置 Modal 的分片大小 Slider 等距映射 8/16/32/64 MiB，并发 Slider 1/2/4/6 路；设置保留在 App 状态中。侧栏仅桶列表，鉴权状态移到账户菜单，打开设置时关闭移动导航。header 使用 favicon 原图而非另画 Cloud 图标；`web/App.module.css`：侧栏隐藏滚动条保留滚动；选择栏使用中性背景；移动端 32px 品牌图标、<=400px 隐藏文字以容纳右上角入口。`README.md` 已同步前述功能。
 - `web/components/BrowserPanel.tsx`：面包屑、前缀/递归筛选、分页、Table/Checkbox（部分选中状态）、批量操作栏、文件操作 Menu、Skeleton 和空/错误状态。每行默认普通下载，分片下载在更多操作菜单中。
 - `web/components/FileDialogs.tsx`：详情 Drawer（KEY/ETag 复制）顶部添加普通下载对象链接、分片下载按钮（同步调用 picker）及下载命令按钮（aria2/curl 弹窗）；浏览器不支持分片落盘仍显示降级提示。命令 Dialog 包含 aria2/curl Tabs 和命令复制。
 - `web/components/ConfirmDialog.tsx`：Promise 异步确认，替代原生 confirm；逐文件覆盖询问、单个/批量删除，默认聚焦取消，Escape/关闭视为拒绝，操作期间禁止切桶/目录以固定目标。
@@ -72,11 +75,15 @@
 - 默认拒绝覆盖，`--overwrite` 显式允许；multipart 存在性检查不是原子条件写入，多人并发有覆盖窗口。CLI 不应并发操作同一 sidecar。
 - CLI 完成响应丢失时，用本地分片 MD5 推算最终 multipart ETag 并核对远端。
 - `README.md`：本地使用、fork 配置、Access Allow/Service Auth、部署、兼容边界、API 和命令行示例。
-- `.github/workflows/check.yml`：类型检查、Node 测试、安装 Chromium/系统依赖、UI 测试、fixture 部署 dry-run；`deploy.yml`：手动触发，选择 override，使用 fork Actions secret 的 Cloudflare API Token。
+- `.github/workflows/check.yml`：仅 `workflow_dispatch` 手动触发，仍执行类型检查、Node 测试、安装 Chromium/系统依赖、UI 测试、fixture 部署 dry-run；`deploy.yml`：手动触发，选择 override，使用 fork Actions secret 的 Cloudflare API Token。
 - `playwright.config.ts`、`tests/ui/app.spec.ts`：`npm run test:ui` 自动构建并用合成 fixture 在 8790 启动本地 Worker；真实页面/CSP，模拟对象 API 和系统文件写入器。浏览器报告和结果已忽略。README 已记录 UI 结构、CSP 和验证命令。
+- `web/index.html`、`web/public/favicon.svg`、`web/App.tsx`：页面 favicon 和 header 共用同源浅蓝/淡粉放射渐变与白云朵 SVG，由 Vite 复制到静态资源根目录，沿用 Worker 的静态资源鉴权和 CSP。
 
 ## 实际验证
 
+- 最新放射渐变修改后 `npm run build` 通过；`dist/web/favicon.svg` 包含 `radialGradient`、淡粉 `#ffd6e7`、亮蓝 `#78beff`，`dist/web/index.html` 引用 `/favicon.svg`。`git diff --check` 及 `git diff --no-index --check /dev/null web/public/favicon.svg` 通过。仅最终 SVG 色值变更后未重跑 Node/UI 测试，也未手工查看浏览器标签页图标。
+- header 共用 favicon 后 `npm run typecheck` 通过；`FONTCONFIG_FILE=/tmp/opencode/fonts.conf LD_LIBRARY_PATH=/tmp/opencode/browser-libs/usr/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/playwright npm run test:ui -- --grep 'mobile navigation switches buckets'` 通过 1 项，验证 390px/320px header 图标与页面 favicon 同地址、资源加载、无水平溢出/无 CSP violation。测试时间早于最后几次静态 SVG 配色微调。
+- 手动 Checks 工作流仅调整事件触发和 README 说明，`git diff` 已核实其余步骤保留；未在 GitHub 上启动远端 Actions。本轮提交前 `git status --short`、`git diff`、`git log --oneline -10` 已检查，仅 8 个当前需求相关文件；提交后核实工作区。
 - 本轮 `npm run typecheck`：首次失败，`web/transfers.ts` 的状态联合类型比较触发 TS2367；改为判断 `state !== 'running'` 后重跑通过。
 - 本轮 `FONTCONFIG_FILE=/tmp/opencode/fonts.conf LD_LIBRARY_PATH=/tmp/opencode/browser-libs/usr/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/playwright npm run test:ui`：14 项全部通过，包含真实 Vite 构建/Worker CSP，覆盖 320px 顶栏和弹窗、桌面/移动隐藏滚动条仍可操作、多档分片 Slider、详情下载链接/命令/分片 picker 用户手势与降级、完成速度保持固定、上传完成仅刷新当前前缀等。每项检查无 CSP violation。此环境的浏览器及缺失系统库保存在 `/tmp/opencode`，不是项目配置；通常开发环境按 README 安装 Chromium。
 - 本轮 `npm test`：18 项全部通过。覆盖真实本地 R2/Access JWT/API、CLI 上传下载续传、浏览器传输调度、Wrangler dev 静态资源和 CSP；Miniflare multipart 会输出一条内部 getUploadId warning，不影响结果。
@@ -86,7 +93,7 @@
 
 ## 下一步及工作区
 
-- 本轮用户要求完成修改并提交；已完成上述功能和验证，将 `web/App.tsx`、`web/App.module.css`、`web/transfers.ts`、`web/components/TransfersPanel.tsx`、`web/components/FileDialogs.tsx`、`web/components/BrowserPanel.tsx`、`tests/ui/app.spec.ts`、`README.md` 和 `HANDOFF.md` 一起提交。提交后用 `git status --short` 核实工作区；没有推送或创建 PR。
+- 本次提交归档 `.github/workflows/check.yml`、`README.md`、`web/index.html`、`web/public/favicon.svg`、`web/App.tsx`、`web/App.module.css`、`tests/ui/app.spec.ts`、`HANDOFF.md`，提交后用 `git status --short` 核实工作区。无阻塞；在变更进入默认分支后，可从 Actions → Checks → Run workflow 手动启动远端检查。没有推送或创建 PR。
 
 1. 用户填写 fork 的 `deploy.override.toml`，创建对应 R2 桶、Access Application（覆盖整个 hostname）及 Allow/Service Auth policies。
 2. 执行 `npm run deploy -- --dry-run`，然后 `npm run deploy`；或配置 Actions secret 后手动触发部署。

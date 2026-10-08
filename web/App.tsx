@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActionIcon, Alert, AppShell, Badge, Box, Burger, Button, Group, Menu, Modal, NavLink, Skeleton, Slider, Stack, Text, ThemeIcon, Title, Tooltip, useMantineColorScheme } from '@mantine/core';
+import { ActionIcon, Alert, AppShell, Badge, Box, Burger, Button, Group, Menu, Modal, NavLink, Skeleton, Slider, Stack, Text, Title, Tooltip, useMantineColorScheme } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { AlertCircle, ArrowDownUp, BookOpen, Check, ChevronDown, Cloud, Database, HardDrive, Laptop, LogOut, Moon, Settings2, ShieldCheck, Sun, User } from 'lucide-react';
+import { AlertCircle, ArrowDownUp, BookOpen, Check, ChevronDown, Database, HardDrive, Laptop, LogOut, Moon, Settings2, ShieldCheck, Sun, User } from 'lucide-react';
 import { api, endpoint, sizeText, type BucketInfo, type ObjectInfo, type Page } from './api';
 import { download, type Transfer, upload } from './transfers';
 import { BrowserPanel } from './components/BrowserPanel';
@@ -197,8 +197,8 @@ export function App() {
       <Group justify="space-between" h="100%" wrap="nowrap" className={classes.headerContent}>
         <Group gap="sm" wrap="nowrap">
           <Burger opened={mobileOpened} onClick={mobile.toggle} hiddenFrom="sm" size="sm" aria-label={mobileOpened ? '关闭导航' : '打开导航'} />
-          <ThemeIcon size={38} radius="lg" variant="filled" visibleFrom="sm"><Cloud size={23} /></ThemeIcon>
-          <div><Text fw={700} size="md">Hoshino R2</Text><Text size="xs" c="dimmed">云端文件管理器</Text></div>
+          <img src="/favicon.svg" width={38} height={38} alt="Hoshino R2" className={classes.brandIcon} />
+          <div className={classes.brandText}><Text fw={700} size="md">Hoshino R2</Text><Text size="xs" c="dimmed">云端文件管理器</Text></div>
         </Group>
         <Group gap="xs" wrap="nowrap">
           <Tooltip label="OpenAPI 文档"><ActionIcon component="a" href="/api/v1/openapi.json" target="_blank" rel="noreferrer" variant="default" aria-label="OpenAPI 文档"><BookOpen size={18} /></ActionIcon></Tooltip>

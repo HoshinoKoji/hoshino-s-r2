@@ -272,6 +272,11 @@ test('mobile navigation switches buckets without causing viewport overflow', asy
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '文档', exact: true })).toBeVisible();
+  const brand = page.getByRole('img', { name: 'Hoshino R2' });
+  await expect(brand).toBeVisible();
+  await expect(brand).toHaveAttribute('src', '/favicon.svg');
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
+  await expect.poll(() => brand.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
   await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: '打开导航' }).click();
@@ -280,6 +285,7 @@ test('mobile navigation switches buckets without causing viewport overflow', asy
   await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.setViewportSize({ width: 320, height: 640 });
+  await expect(brand).toBeVisible();
   await expect(page.getByRole('link', { name: 'OpenAPI 文档' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'OpenAPI 文档' })).toHaveAttribute('href', '/api/v1/openapi.json');
   await expect(page.getByRole('link', { name: 'OpenAPI 文档' })).toHaveAttribute('target', '_blank');

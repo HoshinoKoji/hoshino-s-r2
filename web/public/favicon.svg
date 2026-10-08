@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="sky" cx="72%" cy="28%" r="100%">
+      <stop stop-color="#ffd6e7" />
+      <stop offset="0.35" stop-color="#f4def0" />
+      <stop offset="0.72" stop-color="#bedcff" />
+      <stop offset="1" stop-color="#78beff" />
+    </radialGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#sky)" />
+  <path d="M19 46h26a9 9 0 0 0 2-17.8A16 16 0 0 0 17.2 31 8 8 0 0 0 19 46Z" fill="#fff" stroke="#568ed1" stroke-width="2" stroke-linejoin="round" />
+  <path d="m47 11 1.5 4.5L53 17l-4.5 1.5L47 23l-1.5-4.5L41 17l4.5-1.5Z" fill="#fff" stroke="#568ed1" stroke-width="1" stroke-linejoin="round" />
+</svg>

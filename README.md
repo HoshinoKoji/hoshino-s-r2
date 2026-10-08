@@ -93,7 +93,7 @@ npm run deploy -- --override configs/account-b.toml
 
 `deploy` 会先生成配置并构建网页，再执行 Wrangler。`npm run config` 仅生成部署配置；`npm run config -- --local` 生成本地配置。CI 在各 fork 注入自己的 Cloudflare API Token，执行 `npm ci` 和同样的部署命令。
 
-仓库提供自动检查工作流，以及手动触发的部署工作流。部署工作流默认读取 fork 的 `deploy.override.toml`；在该 fork 的 Actions secrets 中配置 `CLOUDFLARE_API_TOKEN` 后，可在 Actions 页面触发，并选择其他 override 路径。
+仓库的检查和部署工作流均手动触发，不会在 push 或 PR 时自动运行。需要验证时，在 GitHub Actions 页面选择 **Checks → Run workflow**，运行类型检查、Node/UI 测试及部署 dry-run。部署工作流默认读取 fork 的 `deploy.override.toml`；在该 fork 的 Actions secrets 中配置 `CLOUDFLARE_API_TOKEN` 后，可在 Actions 页面触发，并选择其他 override 路径。
 
 Access Application 和 policies 由 Cloudflare 管理，本项目不自动创建。Worker 再验证 Access JWT 的 RS256 签名、issuer、audience、exp 和 iat，通过缓存 JWKS 支持密钥轮换。API 不启用跨域 CORS，修改请求会校验 Origin。
 
