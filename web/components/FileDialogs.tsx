@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Code, Divider, Drawer, Group, Modal, Stack, Tabs, Text, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Copy, Download, FileText, Terminal } from 'lucide-react';
-import { command, sizeText, type ObjectInfo } from '../api';
+import { command, endpoint, sizeText, type ObjectInfo } from '../api';
 import classes from '../App.module.css';
 
 export interface CommandTarget { bucket: string; key: string; kind: 'aria2' | 'curl'; fallback?: boolean }
@@ -16,7 +16,10 @@ async function copy(value: string) {
   }
 }
 
-export function DetailsDrawer({ info, onClose }: { info: ObjectInfo | null; onClose: () => void }) {
+export function DetailsDrawer({ info, bucket, onClose, onDownload, onCommand }: {
+  info: ObjectInfo | null; bucket: string; onClose: () => void;
+  onDownload: (info: ObjectInfo) => void; onCommand: (info: ObjectInfo) => void;
+}) {
   const fields = info ? [
     ['对象 KEY', info.key], ['大小', `${sizeText(info.size)} (${info.size.toLocaleString()} B)`],
     ['上传时间', new Date(info.uploaded).toLocaleString()], ['内容类型', info.contentType || 'application/octet-stream'],
@@ -26,6 +29,12 @@ export function DetailsDrawer({ info, onClose }: { info: ObjectInfo | null; onCl
     closeButtonProps={{ 'aria-label': '关闭文件详情' }}>
     {info && <Stack gap="lg">
       <Group><FileText size={32} className={classes.fileIcon} aria-hidden /><Text fw={600} className={classes.breakWord}>{info?.key.split('/').pop()}</Text></Group>
+      <Divider />
+      <Group gap="xs">
+        <Button component="a" href={endpoint(bucket, 'object', { key: info.key })} leftSection={<Download size={16} />}>下载</Button>
+        <Button variant="light" leftSection={<Download size={16} />} onClick={() => { onDownload(info); onClose(); }}>分片下载</Button>
+        <Button variant="default" leftSection={<Terminal size={16} />} onClick={() => { onCommand(info); onClose(); }}>下载命令</Button>
+      </Group>
       <Divider />
       <dl className={classes.metadata}>{fields.map(([label, value]) => <div key={label}>
         <dt>{label}</dt><dd>{value}</dd>

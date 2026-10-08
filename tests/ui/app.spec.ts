@@ -58,6 +58,9 @@ test('themes persist, file details and command dialogs work under the real Worke
   await page.getByRole('button', { name: 'alpha.txt', exact: true }).click();
   const details = page.getByRole('dialog', { name: '文件详情' });
   await expect(details).toContainText('"fixed-etag"');
+  await expect(details.getByRole('link', { name: '下载', exact: true })).toHaveAttribute('href', /object\?key=alpha\.txt/);
+  await expect(details.getByRole('button', { name: '分片下载' })).toBeVisible();
+  await expect(details.getByRole('button', { name: '下载命令' })).toBeVisible();
   await details.getByRole('button', { name: '复制 KEY' }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('alpha.txt');
   await page.keyboard.press('Escape');
@@ -135,10 +138,59 @@ test('multi-file uploads ask about each overwrite and render completed tasks', a
   await expect(tasks.getByText('已完成', { exact: true })).toHaveCount(2);
   expect(state.writes).toEqual(['beta.json', 'fresh.txt']);
   await expect(tasks.getByRole('progressbar')).toHaveCount(2);
-  await page.getByRole('button', { name: '刷新', exact: true }).click();
   await expect(page.getByRole('button', { name: 'fresh.txt', exact: true })).toBeVisible();
   await tasks.getByRole('button', { name: '清除已结束' }).click();
   await expect(tasks.getByText('暂无传输任务')).toBeVisible();
+});
+
+test('successful uploads refresh the visible listing once and completed transfer speed stays fixed', async ({ page }) => {
+  await mockFiles(page);
+  const listings: string[] = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/documents/objects')) listings.push(request.url());
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'alpha.txt', exact: true })).toBeVisible();
+  expect(listings).toHaveLength(1);
+  await page.getByLabel('选择上传文件').setInputFiles({ name: 'latest.txt', mimeType: 'text/plain', buffer: Buffer.from('new') });
+  await page.getByRole('dialog', { name: '上传文件' }).getByRole('button', { name: '开始上传' }).click();
+  const tasks = page.getByRole('region', { name: '传输任务' });
+  await expect(tasks.getByText('已完成', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'latest.txt', exact: true })).toBeVisible();
+  expect(listings).toHaveLength(2);
+  const speed = tasks.getByText(/平均 .*\/s/);
+  const completedSpeed = await speed.textContent();
+  await page.waitForTimeout(1200); // The app's 1-second repaint used to make a completed task's average speed keep falling.
+  await expect(speed).toHaveText(completedSpeed!);
+});
+
+test('upload completion refreshes the currently visible prefix after navigating during transfer', async ({ page }) => {
+  await mockFiles(page);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let requestStarted!: () => void;
+  const started = new Promise<void>(resolve => { requestStarted = resolve; });
+  const listings: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/documents/objects')) listings.push(url.searchParams.get('prefix') ?? '');
+  });
+  await page.route('**/api/v1/buckets/documents/object?key=delayed.txt', async route => {
+    requestStarted();
+    await gate;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '目录/', exact: true })).toBeVisible();
+  await page.getByLabel('选择上传文件').setInputFiles({ name: 'delayed.txt', mimeType: 'text/plain', buffer: Buffer.from('new') });
+  await page.getByRole('dialog', { name: '上传文件' }).getByRole('button', { name: '开始上传' }).click();
+  await started;
+  await page.getByRole('button', { name: '目录/', exact: true }).click();
+  await expect(page.getByRole('button', { name: '文件 + #%.txt', exact: true })).toBeVisible();
+  release();
+  await expect(page.getByRole('region', { name: '传输任务' }).getByText('已完成', { exact: true })).toBeVisible();
+  await expect.poll(() => listings).toEqual(['', '目录/', '目录/']);
+  await expect(page.getByRole('button', { name: 'delayed.txt', exact: true })).toHaveCount(0);
 });
 
 test('upload paths default to the current directory, cancellation resets selection and an empty prefix targets the root', async ({ page }) => {
@@ -227,7 +279,52 @@ test('mobile navigation switches buckets without causing viewport overflow', asy
   await expect(page.getByRole('heading', { name: '归档', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expect(page.getByRole('link', { name: 'OpenAPI 文档' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'OpenAPI 文档' })).toHaveAttribute('href', '/api/v1/openapi.json');
+  await expect(page.getByRole('link', { name: 'OpenAPI 文档' })).toHaveAttribute('target', '_blank');
+  await page.getByRole('button', { name: '打开导航' }).click();
+  const sidebar = page.getByLabel('存储桶选择', { exact: true });
+  await expect(sidebar.getByRole('link')).toHaveCount(0);
+  await expect(sidebar.getByRole('combobox')).toHaveCount(0);
+  await expect(sidebar).not.toContainText('本地开发模式');
+  await page.getByRole('button', { name: '传输设置', exact: true }).click();
+  await expect(page.getByRole('button', { name: '打开导航' })).toBeVisible();
+  const settings = page.getByRole('dialog', { name: '传输设置', exact: true });
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole('slider', { name: '分片大小' })).toHaveAttribute('aria-valuetext', '16 MiB');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(settings).not.toBeVisible();
+  await expect(page.getByRole('button', { name: '传输设置', exact: true })).toBeFocused();
 });
+
+for (const width of [1440, 320]) {
+  test(`bucket-only sidebar remains scrollable with hidden scrollbars at ${width}px`, async ({ page }) => {
+    await mockFiles(page);
+    await page.setViewportSize({ width, height: 640 });
+    await page.route('**/api/v1/buckets', route => route.fulfill({ json: {
+      identity: '本地开发', buckets: [{ id: 'documents', label: '文档' },
+        ...Array.from({ length: 30 }, (_, index) => ({ id: `extra-${index}`, label: `额外桶 ${index}` }))],
+    } }));
+    await page.route('**/api/v1/buckets/extra-29/objects?**', route => route.fulfill({ json: { objects: [], prefixes: [], truncated: false, cursor: null } }));
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: '文档', exact: true })).toBeVisible();
+    if (width < 768) await page.getByRole('button', { name: '打开导航' }).click();
+    const sidebar = page.getByLabel('存储桶选择', { exact: true });
+    expect(await sidebar.evaluate(element => ({
+      overflow: element.scrollHeight > element.clientHeight,
+      scrollbar: getComputedStyle(element).scrollbarWidth,
+      webkitScrollbar: getComputedStyle(element, '::-webkit-scrollbar').display,
+    }))).toEqual({ overflow: true, scrollbar: 'none', webkitScrollbar: 'none' });
+    await sidebar.hover();
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => sidebar.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    await sidebar.getByRole('button', { name: /额外桶 29 extra-29/ }).click();
+    await expect(page.getByRole('heading', { name: '额外桶 29', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}
 
 test('listing errors are actionable and retry recovers the file list', async ({ page }) => {
   await mockFiles(page);
@@ -260,6 +357,22 @@ test('regular download is the default and multipart download falls back to comma
   expect((await downloaded).suggestedFilename()).toBe('alpha.txt');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('region', { name: '传输任务' })).toContainText('暂无传输任务');
+  await row.getByRole('button', { name: 'alpha.txt', exact: true }).click();
+  const details = page.getByRole('dialog', { name: '文件详情' });
+  const fromDetails = details.getByRole('link', { name: '下载', exact: true });
+  await expect(fromDetails).toHaveAttribute('href', /object\?key=alpha\.txt/);
+  const downloadedFromDetails = page.waitForEvent('download');
+  await fromDetails.click();
+  expect((await downloadedFromDetails).suggestedFilename()).toBe('alpha.txt');
+  await details.getByRole('button', { name: '下载命令' }).click();
+  await expect(details).not.toBeVisible();
+  await expect(page.getByRole('dialog', { name: '命令行下载' }).getByRole('textbox', { name: '下载命令' })).toHaveValue(/aria2c.*alpha\.txt/);
+  await page.keyboard.press('Escape');
+  await row.getByRole('button', { name: 'alpha.txt', exact: true }).click();
+  await details.getByRole('button', { name: '分片下载' }).click();
+  await expect(details).not.toBeVisible();
+  await expect(page.getByRole('dialog', { name: '命令行下载' })).toContainText('此浏览器不支持分片落盘');
+  await page.keyboard.press('Escape');
   await row.getByRole('button', { name: 'alpha.txt 更多操作' }).click();
   await page.getByRole('menuitem', { name: '分片下载', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '命令行下载' })).toContainText('此浏览器不支持分片落盘');
@@ -296,8 +409,15 @@ test('download picker runs in a user gesture and tasks pause/resume with ordered
     } });
   });
   await page.goto('/');
-  await page.getByRole('combobox', { name: '分片大小', exact: true }).click();
-  await page.getByRole('option', { name: '8 MiB', exact: true }).click();
+  await page.getByRole('button', { name: '传输设置', exact: true }).click();
+  const partSize = page.getByRole('slider', { name: '分片大小', exact: true });
+  await expect(partSize).toHaveAttribute('aria-valuetext', '16 MiB');
+  await partSize.press('End');
+  await expect(partSize).toHaveAttribute('aria-valuetext', '64 MiB');
+  await partSize.press('ArrowLeft');
+  await expect(partSize).toHaveAttribute('aria-valuetext', '32 MiB');
+  await partSize.press('Home');
+  await expect(partSize).toHaveAttribute('aria-valuetext', '8 MiB');
   const concurrency = page.getByRole('slider', { name: '下载并发', exact: true });
   await expect(concurrency).toHaveAttribute('aria-valuenow', '4');
   await concurrency.press('End');
@@ -306,9 +426,17 @@ test('download picker runs in a user gesture and tasks pause/resume with ordered
   await expect(concurrency).toHaveAttribute('aria-valuenow', '4');
   await concurrency.press('Home');
   await expect(concurrency).toHaveAttribute('aria-valuetext', '1 路');
+  await page.getByRole('dialog', { name: '传输设置', exact: true }).getByRole('button', { name: '完成', exact: true }).click();
+  await expect(page.getByRole('button', { name: '传输设置', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: '传输设置', exact: true }).click();
+  await expect(partSize).toHaveAttribute('aria-valuetext', '8 MiB');
+  await expect(concurrency).toHaveAttribute('aria-valuetext', '1 路');
+  await page.getByRole('button', { name: '关闭设置弹窗' }).click();
+  await expect(page.getByRole('dialog', { name: '传输设置', exact: true })).not.toBeVisible();
   const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: 'alpha.txt', exact: true }) });
-  await row.getByRole('button', { name: 'alpha.txt 更多操作' }).click();
-  await page.getByRole('menuitem', { name: '分片下载', exact: true }).click();
+  await row.getByRole('button', { name: 'alpha.txt', exact: true }).click();
+  await page.getByRole('dialog', { name: '文件详情' }).getByRole('button', { name: '分片下载' }).click();
+  await expect(page.getByRole('dialog', { name: '文件详情' })).not.toBeVisible();
   const tasks = page.getByRole('region', { name: '传输任务' });
   await expect.poll(() => requests).toBe(1);
   await tasks.getByRole('button', { name: '暂停', exact: true }).click();

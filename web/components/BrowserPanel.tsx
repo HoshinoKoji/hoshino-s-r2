@@ -44,8 +44,8 @@ export function BrowserPanel(props: Props) {
       <Switch label="递归列举" checked={flat} onChange={event => props.setFlat(event.currentTarget.checked)} disabled={!bucket || busy} />
     </form>
     {selected.size > 0 && <Group className={classes.selectionBar} justify="space-between">
-      <Group gap="sm"><Badge variant="filled">{selected.size}</Badge><Text size="sm">个文件已选择</Text><Button size="compact-xs" variant="subtle" disabled={busy} onClick={() => props.select(new Set())}>取消选择</Button></Group>
-      <Button color="red" variant="light" size="xs" leftSection={<Trash2 size={14} />} disabled={busy} onClick={() => props.remove([...selected])}>删除所选</Button>
+      <Group gap="sm"><Badge color="gray" variant="light">{selected.size}</Badge><Text size="sm" c="dimmed">个文件已选择</Text><Button size="compact-xs" color="gray" variant="subtle" disabled={busy} onClick={() => props.select(new Set())}>取消选择</Button></Group>
+      <Button color="red" variant="subtle" size="xs" leftSection={<Trash2 size={14} />} disabled={busy} onClick={() => props.remove([...selected])}>删除所选</Button>
     </Group>}
     <Table.ScrollContainer minWidth={760}>
       <Table verticalSpacing="sm" horizontalSpacing="lg" highlightOnHover className={classes.fileTable} aria-label="文件列表" aria-busy={loading}>

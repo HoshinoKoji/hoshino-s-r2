@@ -20,6 +20,7 @@ export function TransfersPanel({ entries, clear }: { entries: TaskEntry[]; clear
       <Text size="sm" c="dimmed">暂无传输任务</Text><Text size="xs" c="dimmed">上传文件或开始分片下载后，可在这里查看进度。</Text>
     </div> : <Stack gap={0}>{entries.map(({ task, bucketLabel }) => {
       const percent = task.state === 'complete' ? 100 : task.total ? Math.min(100, task.done / task.total * 100) : 0;
+      const elapsed = Math.max(((task.finishedAt ?? Date.now()) - task.started) / 1000, 1);
       const Icon = task.kind === 'upload' ? ArrowUpFromLine : ArrowDownToLine;
       return <div className={classes.task} key={task.id}>
         <Group wrap="nowrap" align="flex-start" gap="sm">
@@ -29,7 +30,7 @@ export function TransfersPanel({ entries, clear }: { entries: TaskEntry[]; clear
             <Text size="xs" c="dimmed" mt={3}>{bucketLabel} · {task.kind === 'upload' ? '上传' : '下载'}</Text>
             <Progress value={percent} color={colors[task.state]} size="sm" radius="xl" mt="sm" aria-label={`${task.name} 传输进度`} />
             <Group justify="space-between" mt="xs" gap="xs">
-              <Text size="xs" c="dimmed">{sizeText(task.done)} / {sizeText(task.total)} · {percent.toFixed(0)}% · 平均 {sizeText(task.done / Math.max((Date.now() - task.started) / 1000, 1))}/s</Text>
+              <Text size="xs" c="dimmed">{sizeText(task.done)} / {sizeText(task.total)} · {percent.toFixed(0)}% · 平均 {sizeText(task.done / elapsed)}/s</Text>
               <Group gap={4}>
                 {task.state === 'running' && <Button variant="subtle" size="compact-xs" leftSection={<Pause size={13} />} onClick={() => task.pause()}>暂停</Button>}
                 {['paused', 'error'].includes(task.state) && <Button variant="light" size="compact-xs" leftSection={task.state === 'error' ? <RotateCcw size={13} /> : <Play size={13} />} onClick={() => task.resume()}>{task.state === 'error' ? '重试' : '继续'}</Button>}

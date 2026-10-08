@@ -11,6 +11,7 @@ export class Transfer {
   done = 0;
   error = '';
   started = Date.now();
+  finishedAt: number | null = null;
   controller = new AbortController();
   private active = false;
   private waiters = new Set<() => void>();
@@ -27,6 +28,7 @@ export class Transfer {
     if (this.active || ['cancelled', 'complete'].includes(this.state)) return;
     this.active = true;
     this.state = 'running';
+    this.finishedAt = null;
     this.error = '';
     this.notify();
     try {
@@ -39,6 +41,7 @@ export class Transfer {
       }
     } finally {
       this.active = false;
+      if (this.state !== 'running') this.finishedAt ??= Date.now();
       if (this.controller.signal.aborted) await this.cleanup().catch(error => { this.error = `清理失败：${error.message}`; });
       this.notify();
     }
@@ -51,6 +54,7 @@ export class Transfer {
   async cancel() {
     if (['cancelled', 'complete'].includes(this.state)) return;
     this.state = 'cancelled';
+    this.finishedAt = Date.now();
     this.controller.abort();
     this.wakeAll();
     this.notify();
