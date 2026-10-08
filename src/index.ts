@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { authenticate, type Env } from './auth';
-import { ApiError, bodyLength, ifRangeMatches, jsonBody, metadata, MiB, MAX_BODY, PART_SIZE, parseRange, requireValue } from './http';
+import { ApiError, bodyLength, ifRangeMatches, jsonBody, MiB, MAX_BODY, PART_SIZE, parseRange, requireValue } from './http';
 import { openapi } from './openapi';
+import { store } from './storage';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: string; styleNonce: string } }>();
 
@@ -28,14 +29,6 @@ app.onError((error, c) => {
   return c.json({ error: { code: 'internal_error', message: 'Operation failed; retry or check Worker logs' } }, 500);
 });
 
-function bucket(env: Env, id: string): R2Bucket {
-  const config = env.BUCKETS.find(item => item.id === id);
-  if (!config) throw new ApiError(404, 'bucket_not_found', 'Unknown bucket');
-  const binding = env[config.binding];
-  if (!binding) throw new ApiError(503, 'binding_missing', 'Bucket binding is missing');
-  return binding as R2Bucket;
-}
-
 function keyOf(url: string): string {
   const key = new URL(url).searchParams.get('key');
   requireValue(key && !key.includes('\0') && new TextEncoder().encode(key).length <= 1024, 'key must contain 1–1024 UTF-8 bytes without NUL');
@@ -52,40 +45,38 @@ app.get('/api/v1/buckets/:id/objects', async c => {
   requireValue(Number.isInteger(limit) && limit >= 1 && limit <= 1000, 'limit must be 1–1000');
   const delimiter = params.get('delimiter') ?? '/';
   requireValue(delimiter === '/' || delimiter === '', 'delimiter must be / or empty');
-  const listed = await bucket(c.env, c.req.param('id')).list({ limit, prefix: params.get('prefix') ?? '',
-    cursor: params.get('cursor') || undefined, delimiter: delimiter || undefined, include: ['httpMetadata'] });
-  return c.json({ objects: listed.objects.map(metadata), prefixes: listed.delimitedPrefixes,
-    truncated: listed.truncated, cursor: listed.truncated ? listed.cursor : null });
+  return c.json(await store(c.env, c.req.param('id')).list({ limit, prefix: params.get('prefix') ?? '',
+    cursor: params.get('cursor') || undefined, delimiter: delimiter || undefined }));
 });
 
 app.get('/api/v1/buckets/:id/metadata', async c => {
-  const object = await bucket(c.env, c.req.param('id')).head(keyOf(c.req.url));
+  const object = await store(c.env, c.req.param('id')).head(keyOf(c.req.url));
   if (!object) throw new ApiError(404, 'object_not_found', 'Object not found');
-  return c.json(metadata(object));
+  return c.json(object);
 });
 
 app.on(['GET', 'HEAD'], '/api/v1/buckets/:id/object', async c => {
-  const store = bucket(c.env, c.req.param('id'));
+  const bucket = store(c.env, c.req.param('id'));
   const key = keyOf(c.req.url);
-  const head = await store.head(key);
+  const head = await bucket.head(key);
   if (!head) throw new ApiError(404, 'object_not_found', 'Object not found');
-  const headers = new Headers({ 'Accept-Ranges': 'bytes', ETag: head.httpEtag,
-    'Last-Modified': head.uploaded.toUTCString(), 'Content-Type': 'application/octet-stream',
+  const headers = new Headers({ 'Accept-Ranges': 'bytes', ETag: head.etag,
+    'Last-Modified': new Date(head.uploaded).toUTCString(), 'Content-Type': 'application/octet-stream',
     'Content-Disposition': `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(key.split('/').pop() || 'download').replace(/['()*]/g, ch => '%' + ch.charCodeAt(0).toString(16))}`,
     'Cache-Control': 'private, no-store, no-transform', 'X-Content-Type-Options': 'nosniff' });
   const ifMatch = c.req.header('If-Match');
-  if (ifMatch && ifMatch !== '*' && !ifMatch.split(',').map(s => s.trim()).includes(head.httpEtag)) {
+  if (ifMatch && ifMatch !== '*' && !ifMatch.split(',').map(s => s.trim()).includes(head.etag)) {
     return new Response(null, { status: 412, headers });
   }
   const ifNone = c.req.header('If-None-Match');
-  if (ifNone && (ifNone === '*' || ifNone.split(',').map(s => s.trim().replace(/^W\//, '')).includes(head.httpEtag))) {
+  if (ifNone && (ifNone === '*' || ifNone.split(',').map(s => s.trim().replace(/^W\//, '')).includes(head.etag))) {
     return new Response(null, { status: 304, headers });
   }
   let range: { offset: number; length: number } | undefined;
   const raw = c.req.header('Range');
   const ifRange = c.req.header('If-Range');
   // RFC: Range applies to GET only, not HEAD.
-  if (c.req.method === 'GET' && raw && (!ifRange || ifRangeMatches(ifRange, head.httpEtag, head.uploaded))) {
+  if (c.req.method === 'GET' && raw && (!ifRange || ifRangeMatches(ifRange, head.etag, new Date(head.uploaded)))) {
     const parsed = parseRange(raw, head.size);
     if (!parsed) {
       headers.set('Content-Range', `bytes */${head.size}`);
@@ -97,27 +88,27 @@ app.on(['GET', 'HEAD'], '/api/v1/buckets/:id/object', async c => {
   headers.set('Content-Length', String(range?.length ?? head.size));
   if (c.req.method === 'HEAD') return new Response(null, { headers });
   // Pin get to the head ETag, including full responses: concurrent replacement cannot mix metadata/body.
-  const object = await store.get(key, { range, onlyIf: { etagMatches: head.etag } });
-  if (!object) throw new ApiError(404, 'object_not_found', 'Object was deleted');
-  if (!('body' in object)) {
+  const response = await bucket.get(key, range, head.etag, head.size);
+  if (response.status === 404) throw new ApiError(404, 'object_not_found', 'Object was deleted');
+  if (response.status === 412) {
     headers.delete('Content-Length');
     headers.delete('Content-Range');
     return new Response(null, { status: 412, headers });
   }
-  return new Response(object.body, { status: range ? 206 : 200, headers });
+  return new Response(response.body, { status: range ? 206 : 200, headers });
 });
 
 app.put('/api/v1/buckets/:id/object', async c => {
   const size = bodyLength(c.req.raw);
   const type = c.req.header('Content-Type') || 'application/octet-stream';
-  const object = await bucket(c.env, c.req.param('id')).put(keyOf(c.req.url), size ? c.req.raw.body : null,
-    { httpMetadata: { contentType: type }, onlyIf: c.req.raw.headers });
+  const object = await store(c.env, c.req.param('id')).put(keyOf(c.req.url), size ? c.req.raw.body : null,
+    size, type, c.req.raw.headers);
   if (!object) throw new ApiError(412, 'precondition_failed', 'Upload precondition failed');
-  return c.json(metadata(object), 201);
+  return c.json(object, 201);
 });
 
 app.delete('/api/v1/buckets/:id/object', async c => {
-  await bucket(c.env, c.req.param('id')).delete(keyOf(c.req.url));
+  await store(c.env, c.req.param('id')).delete(keyOf(c.req.url));
   return c.body(null, 204);
 });
 
@@ -131,9 +122,8 @@ app.post('/api/v1/buckets/:id/uploads', async c => {
   requireValue(Number.isSafeInteger(partSize) && (partSize as number) >= 5 * MiB && (partSize as number) <= MAX_BODY, 'partSize must be 5–64 MiB');
   requireValue(Math.ceil((body.size as number) / (partSize as number)) <= 10000, 'File requires more than 10,000 parts; increase partSize (maximum 64 MiB)');
   requireValue(body.contentType === undefined || (typeof body.contentType === 'string' && body.contentType.length <= 256), 'Invalid contentType');
-  const upload = await bucket(c.env, c.req.param('id')).createMultipartUpload(key,
-    { httpMetadata: { contentType: body.contentType as string || 'application/octet-stream' } });
-  return c.json({ key, uploadId: upload.uploadId, partSize }, 201);
+  const uploadId = await store(c.env, c.req.param('id')).create(key, body.contentType as string || 'application/octet-stream');
+  return c.json({ key, uploadId, partSize }, 201);
 });
 
 app.put('/api/v1/buckets/:id/uploads/:uploadId/parts/:number', async c => {
@@ -141,9 +131,11 @@ app.put('/api/v1/buckets/:id/uploads/:uploadId/parts/:number', async c => {
   requireValue(Number.isInteger(number) && number >= 1 && number <= 10000, 'part number must be 1–10000');
   const size = bodyLength(c.req.raw);
   requireValue(size > 0 && c.req.raw.body, 'Part must not be empty');
-  const upload = bucket(c.env, c.req.param('id')).resumeMultipartUpload(keyOf(c.req.url), c.req.param('uploadId'));
-  try { return c.json(await upload.uploadPart(number, c.req.raw.body)); }
-  catch { throw new ApiError(409, 'upload_unavailable', 'Upload part failed; session may have expired or been completed/aborted'); }
+  try { return c.json(await store(c.env, c.req.param('id')).uploadPart(keyOf(c.req.url), c.req.param('uploadId'), number, c.req.raw.body, size)); }
+  catch (error) {
+    if (error instanceof ApiError && error.code !== 'upload_unavailable') throw error;
+    throw new ApiError(409, 'upload_unavailable', 'Upload part failed; session may have expired or been completed/aborted');
+  }
 });
 
 app.post('/api/v1/buckets/:id/uploads/:uploadId/complete', async c => {
@@ -155,14 +147,19 @@ app.post('/api/v1/buckets/:id/uploads/:uploadId/complete', async c => {
     requireValue(part && part.partNumber === i + 1 && typeof part.etag === 'string' && part.etag.length > 0 && part.etag.length <= 512,
       'parts must be contiguous, sorted and contain valid ETags');
   }
-  const upload = bucket(c.env, c.req.param('id')).resumeMultipartUpload(keyOf(c.req.url), c.req.param('uploadId'));
-  try { return c.json(metadata(await upload.complete(parts))); }
-  catch { throw new ApiError(409, 'upload_unavailable', 'Cannot complete upload; check session and part list'); }
+  try { return c.json(await store(c.env, c.req.param('id')).complete(keyOf(c.req.url), c.req.param('uploadId'), parts)); }
+  catch (error) {
+    if (error instanceof ApiError && error.code !== 'upload_unavailable') throw error;
+    throw new ApiError(409, 'upload_unavailable', 'Cannot complete upload; check session and part list');
+  }
 });
 
 app.delete('/api/v1/buckets/:id/uploads/:uploadId', async c => {
-  const upload = bucket(c.env, c.req.param('id')).resumeMultipartUpload(keyOf(c.req.url), c.req.param('uploadId'));
-  try { await upload.abort(); } catch { throw new ApiError(409, 'upload_unavailable', 'Upload is no longer available'); }
+  try { await store(c.env, c.req.param('id')).abort(keyOf(c.req.url), c.req.param('uploadId')); }
+  catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(409, 'upload_unavailable', 'Upload is no longer available');
+  }
   return c.body(null, 204);
 });
 

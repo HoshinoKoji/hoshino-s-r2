@@ -41,3 +41,22 @@ test('local config removes account/routes and remote auth settings', () => {
   assert.equal(config.vars.LOCAL_DEV, 'true');
   assert.equal(config.vars.ACCESS_AUD, '');
 });
+
+test('R2 and COS/S3 mounts share IDs but only R2 creates Wrangler bucket bindings', () => {
+  const cos = { id: 'cos', label: '腾讯 COS', type: 's3', provider: 'cos', bucket_name: 'photos-1250000000',
+    endpoint: 'https://cos.ap-guangzhou.myqcloud.com', region: 'ap-guangzhou', addressing: 'virtual',
+    access_key_id_secret: 'COS_SECRET_ID', secret_access_key_secret: 'COS_SECRET_KEY' };
+  const config = TOML.parse(TOML.stringify(makeConfig(base, { ...override, buckets: [...override.buckets, cos] })));
+  assert.equal(config.r2_buckets.length, 1);
+  assert.deepEqual(config.vars.BUCKETS[1], { id: 'cos', label: '腾讯 COS', type: 's3', provider: 'cos',
+    bucketName: 'photos-1250000000', endpoint: cos.endpoint, region: 'ap-guangzhou', addressing: 'virtual',
+    accessKeyIdSecret: 'COS_SECRET_ID', secretAccessKeySecret: 'COS_SECRET_KEY' });
+  assert.equal(JSON.stringify(config).includes('actual-secret'), false);
+  assert.equal(makeConfig(base, { ...override, buckets: [cos] }).r2_buckets.length, 0);
+  assert.throws(() => makeConfig(base, { ...override, buckets: [{ ...cos, endpoint: 'http://cos.ap-guangzhou.myqcloud.com' }] }), /HTTPS/);
+  assert.throws(() => makeConfig(base, { ...override, buckets: [{ ...cos, secret_access_key: 'actual-secret' }] }), /field/);
+  assert.throws(() => makeConfig(base, { ...override, buckets: [{ ...cos, access_key_id_secret: 'ACCESS_AUD' }] }), /conflicts/);
+  assert.throws(() => makeConfig(base, { ...override, buckets: [{ ...cos, session_token_secret: '' }] }), /session_token_secret/);
+  assert.throws(() => makeConfig(base, { ...override, buckets: [...override.buckets, cos, { ...cos, id: 'other', access_key_id_secret: 'PHOTOS' }] }), /conflicts/);
+  assert.equal(makeConfig(base, { ...override, buckets: [{ ...cos, endpoint: 'http://localhost:9000', addressing: 'path' }] }, true).vars.BUCKETS[0].endpoint, 'http://localhost:9000');
+});

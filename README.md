@@ -1,10 +1,10 @@
 # Hoshino R2
 
-Cloudflare Worker 上的多桶 R2 文件管理器。网页和命令行共用 `/api/v1`，通过 Cloudflare Access 统一鉴权。
+Cloudflare Worker 上的多桶 R2 / S3-compatible 文件管理器（优先适配腾讯云 COS）。网页和命令行共用 `/api/v1`，通过 Cloudflare Access 统一鉴权。
 
 ## 功能
 
-- 多桶切换，目录浏览、前缀筛选、递归列举、游标分页和元数据。
+- R2 与外部 S3-compatible 桶并列挂载，多桶切换、目录浏览、前缀筛选、递归列举、游标分页和元数据。
 - Mantine 控制台 UI：深浅主题（默认跟随系统、记忆选择）、响应式存储桶导航、文件操作菜单、详情抽屉、删除/覆盖确认弹窗和传输任务面板。
 - 普通下载及标准单段 HTTP Range 下载，支持 ETag 条件读取。
 - 网页分片下载：进度、平均速度、暂停/继续、自动重试、取消，按偏移写入本地文件。
@@ -37,7 +37,7 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:8787`。没有 `deploy.override.toml` 时自动提供两个本地桶；本地 R2 数据存储在 `.wrangler/`，不会访问远端桶。网页由 Vite 构建后交给 Wrangler；修改网页后重启 `npm run dev`，Worker 源码由 Wrangler 监听。
+打开 `http://localhost:8787`。没有 `deploy.override.toml` 时自动提供两个本地桶；本地 R2 数据存储在 `.wrangler/`，不会访问远端桶。如果配置了 S3/COS 挂载，本地开发也会请求指定的外部 endpoint，需提供本地 secret。网页由 Vite 构建后交给 Wrangler；修改网页后重启 `npm run dev`，Worker 源码由 Wrangler 监听。
 
 `dev` 只允许本地运行，自动生成 `LOCAL_DEV = "true"`；Worker 仅对 localhost / 127.0.0.1 / ::1 请求启用开发身份。部署命令生成 `LOCAL_DEV = "false"`。不要直接部署本地生成文件。
 
@@ -70,14 +70,46 @@ bucket_name = "my-documents"
 
 - `[worker]` 覆盖 `wrangler.toml` 中的公共配置；标量替换、普通表按字段合并、数组/数组表整体替换。
 - `[[buckets]]` 同时生成 `r2_buckets` 和应用桶映射。Worker 按 binding 动态访问；API 使用稳定的 `id`。
+- `[[buckets]]` 不写 `type` 时沿用 R2；`type = "s3"` 时只生成应用桶映射，不创建 R2 binding。R2 与 S3 桶 ID 必须唯一，可只配置 S3 桶。
 - `ASSETS`、`BUCKETS`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`、`LOCAL_DEV` 是保留名称。
 - 生成脚本验证账户/AUD、域名、桶 ID 和 binding，并拒绝命名 Wrangler env。不同部署使用不同 override 文件。
 - 静态资源必须 `run_worker_first = true`，确保网页和 API 都经过 JWT 验证。禁用 workers.dev 和预览 URL。
 - `wrangler.generated.toml` 放在根目录以保持相对路径，已加入 `.gitignore`。不要手工维护它。
 
+### 外部 S3 / 腾讯云 COS 挂载
+
+在同一份 override 中加入一个或多个桶。腾讯 COS 示例（`bucket_name` 必须含 APPID，endpoint 为**地域服务地址**，不含桶名）：
+
+```toml
+[[buckets]]
+id = "cos"
+label = "腾讯 COS"
+type = "s3"
+provider = "cos"
+bucket_name = "pictures-1250000000"
+endpoint = "https://cos.ap-guangzhou.myqcloud.com"
+region = "ap-guangzhou"
+addressing = "virtual"
+access_key_id_secret = "COS_SECRET_ID"
+secret_access_key_secret = "COS_SECRET_KEY"
+```
+
+`provider = "cos"` 使用 COS 的 XML API 签名；通用 S3 使用 `provider = "s3"`（SigV4），按服务要求选择 `addressing = "virtual"`（桶名前置主机名）或 `"path"`（桶名作为路径首段）。例如 AWS S3 可使用 `endpoint = "https://s3.us-east-1.amazonaws.com"`、`region = "us-east-1"`、`addressing = "virtual"`。只接受 HTTPS endpoint，不接受 URL 中的用户名、查询、路径或片段；本地开发可使用 `http://localhost:9000` 等 loopback endpoint。需要临时凭据时可额外配置 `session_token_secret = "S3_SESSION_TOKEN"`，COS 使用 `x-cos-security-token`，通用 S3 使用 SigV4 session token。
+
+配置中的 `*_secret` 是 **Worker secret 的变量名**，不要将 SecretId / SecretKey 明文写入 TOML 或 `[worker.vars]`。本地在根目录创建已忽略的 `.dev.vars`：
+
+```dotenv
+COS_SECRET_ID="填写SecretId"
+COS_SECRET_KEY="填写SecretKey"
+```
+
+部署时，在目标 Worker 的 Cloudflare 控制台 **Settings → Variables and Secrets** 创建同名 Secret；或生成配置后用 `npx wrangler secret put COS_SECRET_ID --config wrangler.generated.toml`、`npx wrangler secret put COS_SECRET_KEY --config wrangler.generated.toml` 设置（Wrangler 的 `secret put` 会立即部署 Worker 新版本）。部署工作流会沿用 Worker 上现有的 secrets；缺少 secret 的桶会返回 `503 storage_not_configured`。为 COS 凭据授权该桶的列举、读取、写入、删除和 multipart 操作。
+
+挂载显示在同一个桶列表，网页和 CLI 继续使用其 `id` 操作，无需客户端直连存储。S3/COS 对象 key 不能包含独立的 `.` 或 `..` 路径段，以避免 URL 路径归一化越过桶名。COS 的 `If-None-Match: *` PUT 使用 `x-cos-forbid-overwrite`（仅在**未启用版本控制**的桶上生效）；其他 COS PUT 条件头返回 501。multipart 的存在性检查与完成间仍有覆盖窗口；不同服务对 ETag 和上传限制可能另有约束。
+
 ### Cloudflare 设置
 
-1. 在同一账户中创建 R2 桶；域名的 zone 也属于该账户。
+1. 为 R2 挂载在同一账户中创建 R2 桶；域名的 zone 也属于 Worker 账户。外部 COS/S3 桶在相应服务创建。
 2. 创建覆盖 **整个 hostname** 的 self-hosted Access Application，例如 `files.example.com`，不只保护 `/api`。
 3. 添加允许用户登录的 **Allow** policy。
 4. 创建 Access Service Token，并添加允许该 token 的 **Service Auth** policy，供 CLI/curl/aria2 使用。每次请求都发送两项 token 请求头。
@@ -115,7 +147,7 @@ Access Application 和 policies 由 Cloudflare 管理，本项目不自动创建
 
 小于等于所选分片大小的文件使用 PUT，其他文件使用 multipart，默认 16 MiB、3 路并发。已完成分片保存在当前任务内，失败重试不重传成功分片；取消调用 abort。上传成功后自动刷新当前可见存储桶的列表；若已切到其他存储桶，则不刷新无关列表，下次切回时正常加载。完成的传输任务保留固定的平均速度，不再随页面计时降低。
 
-创建上传会话和完成上传不自动重试，因为响应丢失时服务端可能已成功。完成响应丢失后先检查远端元数据，再决定重试或重新上传。关闭页面可能留下未完成上传；R2 默认 7 天清理，可设置桶 lifecycle。网页覆盖前提示，但多人并发时检查和完成之间仍可能被其他用户写入；最后完成的 multipart 覆盖同名对象。
+创建上传会话和完成上传不自动重试，因为响应丢失时服务端可能已成功。完成响应丢失后先检查远端元数据，再决定重试或重新上传。关闭页面可能留下未完成上传；R2 默认 7 天清理，S3/COS 请自行配置未完成 multipart 的清理规则。网页覆盖前提示，但多人并发时检查和完成之间仍可能被其他用户写入；最后完成的 multipart 覆盖同名对象。
 
 每次请求最多 **64 MiB**，低于常见 Cloudflare 100 MB 请求上限；multipart 非末尾分片必须等长且至少 5 MiB，最多 10,000 片。因此默认 16 MiB 上传上限约 156.25 GiB，选择 64 MiB 可达 625 GiB。本项目首版不支持完整 5 TiB R2 单对象上传上限。
 
@@ -146,7 +178,7 @@ npm run cli -- rm documents 'backups/large.bin'
 - sidecar 原子替换，权限 0600，不保存凭据。不要并发运行多个命令处理同一本地文件或相同 sidecar。
 - 文件/对象已有内容默认拒绝覆盖，使用 `--overwrite` 明确允许。multipart 的存在性检查不是原子条件写入，仍有并发覆盖窗口。
 - CLI 默认 16 MiB、4 并发；可使用 `--part-size 64 --concurrency 3`。恢复时沿用 sidecar 保存的分片大小。
-- 服务端/网络临时错误最多自动重试 3 次。下载响应中途断开时重新执行命令继续；完成上传响应丢失会核对远端 multipart ETag。
+- 服务端/网络临时错误最多自动重试 3 次。下载响应中途断开时重新执行命令继续；完成上传响应丢失仅在远端 multipart ETag 与本地 MD5 推算值吻合时自动认定成功。COS/S3 的加密或服务实现可能返回不同 ETag，此时保留 sidecar 并报错，需要手工核对对象内容，不会盲目重传完成请求。
 
 ### curl 与 aria2
 
@@ -184,7 +216,7 @@ curl --fail --show-error --get \
 | `/buckets/:id/uploads/:uploadId/complete?key=…` | POST | 完成：`{parts:[{partNumber,etag},…]}` |
 | `/buckets/:id/uploads/:uploadId?key=…` | DELETE | 取消上传 |
 
-Range 支持 `bytes=start-end`、`bytes=start-`、`bytes=-suffix`；不支持多段 ranges，无效范围返回 416 及 `Content-Range: bytes */size`。HEAD 忽略 Range。GET 支持 If-Match、If-None-Match、If-Range，If-Range 不匹配则完整返回 200。R2 head/get 之间用 ETag 条件读取；并发对象变化返回 412。PUT 支持 R2 条件头，例如 `If-None-Match: *` 防止覆盖。PUT/分片上传需要 Content-Length。
+Range 支持 `bytes=start-end`、`bytes=start-`、`bytes=-suffix`；不支持多段 ranges，无效范围返回 416 及 `Content-Range: bytes */size`。HEAD 忽略 Range。GET 支持 If-Match、If-None-Match、If-Range，If-Range 不匹配则完整返回 200。R2 / S3 head/get 之间通过 ETag 与上游响应校验固定版本；并发对象变化返回 412。R2 PUT 支持条件头；COS 条件限制见上文。PUT/分片上传需要 Content-Length。
 
 错误格式：`{"error":{"code":"invalid_request","message":"…"}}`。Access 拒绝请求时可能在请求到达 Worker 前返回自身 HTML/重定向；命令行需配置 Service Auth。
 
@@ -199,6 +231,6 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-测试使用 Miniflare 的真实本地 R2 binding，覆盖 Range、条件读取、特殊 key、分页、多桶、multipart 和 CLI 传输；还包括 TOML 合并校验和 JWT 验证。测试不接触远端 Cloudflare。
+测试使用 Miniflare 的真实本地 R2 binding 和模拟的 S3/COS 上游，覆盖签名、Range、条件读取、特殊 key、分页、多桶、multipart 和 CLI 传输；还包括 TOML 合并校验和 JWT 验证。模拟测试不代表真实 COS 已验收；需用实际 COS 凭据验证不同地域、桶版本控制与大文件行为。
 
 Playwright 测试自动通过合成 TOML fixture 在 `127.0.0.1:8790` 启动本地 Worker，使用真实构建页面/CSP 和模拟对象 API 验证主题、菜单、焦点返回、复制命令、删除/覆盖确认、上传任务、移动端布局及下载控制。文件保存接口以模拟写入器验证点击手势和写入偏移；真实系统保存对话框仍需在 Chrome/Edge 手工验收。请串行运行 `npm test` 和 `npm run test:ui`，两者都会生成本地配置及构建产物。

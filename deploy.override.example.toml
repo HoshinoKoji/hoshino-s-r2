@@ -25,3 +25,17 @@ label = "归档"
 binding = "R2_ARCHIVES"
 bucket_name = "my-archives"
 # jurisdiction = "eu"
+
+# Optional external S3-compatible mount. COS bucket names include the APPID suffix.
+# Create COS_SECRET_ID and COS_SECRET_KEY as Worker secrets, not TOML vars.
+# [[buckets]]
+# id = "cos"
+# label = "腾讯 COS"
+# type = "s3"
+# provider = "cos"
+# bucket_name = "pictures-1250000000"
+# endpoint = "https://cos.ap-guangzhou.myqcloud.com"
+# region = "ap-guangzhou"
+# addressing = "virtual"
+# access_key_id_secret = "COS_SECRET_ID"
+# secret_access_key_secret = "COS_SECRET_KEY"

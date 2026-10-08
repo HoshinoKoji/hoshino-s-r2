@@ -20,6 +20,8 @@
     "@mantine/core": "^9.7.1",
     "@mantine/hooks": "^9.7.1",
     "@mantine/notifications": "^9.7.1",
+    "aws4fetch": "^1.0.20",
+    "fast-xml-parser": "^5.11.2",
     "get-nonce": "^1.0.1",
     "hono": "^4.12.0",
     "jose": "^6.1.0",

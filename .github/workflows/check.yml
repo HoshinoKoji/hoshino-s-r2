@@ -20,3 +20,6 @@ jobs:
       - run: npm run deploy -- --override tests/fixtures/deploy.toml --dry-run
         env:
           WRANGLER_SEND_METRICS: 'false'
+      - run: npm run deploy -- --override tests/fixtures/s3-deploy.toml --dry-run
+        env:
+          WRANGLER_SEND_METRICS: 'false'

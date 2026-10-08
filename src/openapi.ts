@@ -7,10 +7,10 @@ const error = { description: 'API error', ...json({ $ref: '#/components/schemas/
 const object = { $ref: '#/components/schemas/Object' };
 const part = { type: 'object', required: ['partNumber', 'etag'], properties: { partNumber: { type: 'integer', minimum: 1, maximum: 10000 }, etag: { type: 'string' } } };
 const operation = (summary: string, parameters: object[], responses: object, requestBody?: object) => ({ summary, parameters,
-  ...(requestBody ? { requestBody } : {}), responses: { ...responses, '400': error, '401': error, '403': error, '404': error, '409': error, '413': error, '500': error } });
+  ...(requestBody ? { requestBody } : {}), responses: { ...responses, '400': error, '401': error, '403': error, '404': error, '409': error, '413': error, '500': error, '501': error, '502': error, '503': error } });
 
 export const openapi = {
-  openapi: '3.0.3', info: { title: 'CDLab R2 API', version: '0.1.0', description: 'Same-origin API behind Cloudflare Access. Service clients send both service token headers on every request. All authorized identities have full access to all configured buckets.' },
+  openapi: '3.0.3', info: { title: 'Hoshino storage API', version: '0.1.0', description: 'Same-origin API behind Cloudflare Access for mounted R2 and S3-compatible buckets. Service clients send both service token headers on every request. All authorized identities have full access to all configured buckets. S3 object keys cannot contain standalone . or .. path segments. COS supports If-None-Match: * on PUT with versioning disabled; other COS PUT conditions return 501.' },
   servers: [{ url: '/api/v1' }], security: [{ AccessClientId: [], AccessClientSecret: [] }],
   paths: {
     '/buckets': { get: operation('List mounted buckets, identity and transfer limits', [], { '200': { description: 'Bucket list', ...json({ type: 'object', properties: { buckets: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' } } } }, identity: { type: 'string' }, limits: { type: 'object' } } }) } }) },

@@ -49,27 +49,59 @@ export function makeConfig(base, override, local = false) {
   check(Array.isArray(override.buckets) && override.buckets.length > 0, 'Configure at least one [[buckets]]');
   const ids = new Set();
   const bindings = new Set([...reserved, ...Object.keys(config.vars ?? {})]);
+  const secrets = new Set();
   // Detect conflicts with optional non-R2 bindings defined in the common/worker config.
   for (const list of Object.values(config)) {
     if (Array.isArray(list)) for (const item of list) if (item?.binding) bindings.add(item.binding);
   }
   for (const bucket of override.buckets) {
+    check(plain(bucket), 'Each bucket must be a table');
     check(/^[a-z0-9][a-z0-9_-]{0,63}$/.test(bucket.id ?? ''), 'Invalid bucket id');
     check(typeof bucket.label === 'string' && bucket.label.length > 0, 'Bucket label is required');
-    check(/^[A-Za-z_][A-Za-z0-9_]*$/.test(bucket.binding ?? ''), 'Invalid binding name');
+    const type = bucket.type ?? 'r2';
+    check(['r2', 's3'].includes(type), 'Invalid bucket type');
+    const fields = type === 'r2'
+      ? ['id', 'label', 'type', 'binding', 'bucket_name', 'jurisdiction', 'preview_bucket_name']
+      : ['id', 'label', 'type', 'provider', 'bucket_name', 'endpoint', 'region', 'addressing', 'access_key_id_secret', 'secret_access_key_secret', 'session_token_secret'];
+    check(Object.keys(bucket).every(field => fields.includes(field)), `Invalid ${type} bucket field`);
     check(typeof bucket.bucket_name === 'string' && /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket.bucket_name), 'Invalid bucket_name');
     check(!ids.has(bucket.id), 'Duplicate bucket id');
-    check(!bindings.has(bucket.binding), 'Duplicate or reserved binding name');
-    check(!bucket.jurisdiction || ['eu', 'fedramp'].includes(bucket.jurisdiction), 'Invalid jurisdiction');
+    if (type === 'r2') {
+      check(/^[A-Za-z_][A-Za-z0-9_]*$/.test(bucket.binding ?? ''), 'Invalid binding name');
+      check(!bindings.has(bucket.binding) && !secrets.has(bucket.binding), 'Duplicate or reserved binding name');
+      check(!bucket.jurisdiction || ['eu', 'fedramp'].includes(bucket.jurisdiction), 'Invalid jurisdiction');
+      bindings.add(bucket.binding);
+    } else {
+      check(['s3', 'cos'].includes(bucket.provider), 'S3 provider must be s3 or cos');
+      check(typeof bucket.region === 'string' && /^[a-z0-9-]{2,64}$/.test(bucket.region), 'Invalid S3 region');
+      check(['path', 'virtual'].includes(bucket.addressing), 'S3 addressing must be path or virtual');
+      let endpoint;
+      try { endpoint = new URL(bucket.endpoint); } catch { /* validated below */ }
+      check(endpoint && (endpoint.protocol === 'https:' || (local && endpoint.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname))) &&
+        !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash && endpoint.pathname === '/', 'S3 endpoint must be an HTTPS service origin');
+      for (const name of ['access_key_id_secret', 'secret_access_key_secret']) {
+        check(/^[A-Za-z_][A-Za-z0-9_]*$/.test(bucket[name] ?? ''), `Invalid ${name}`);
+      }
+      if ('session_token_secret' in bucket) check(/^[A-Za-z_][A-Za-z0-9_]*$/.test(bucket.session_token_secret), 'Invalid session_token_secret');
+      for (const name of [bucket.access_key_id_secret, bucket.secret_access_key_secret, bucket.session_token_secret].filter(Boolean)) {
+        check(!bindings.has(name), 'S3 secret name conflicts with a binding or variable');
+        secrets.add(name);
+      }
+    }
     ids.add(bucket.id);
-    bindings.add(bucket.binding);
   }
-  config.r2_buckets = override.buckets.map(({ binding, bucket_name, jurisdiction, preview_bucket_name }) => ({
+  check(![...secrets].some(name => bindings.has(name)), 'S3 secret name conflicts with a binding or variable');
+  config.r2_buckets = override.buckets.filter(bucket => (bucket.type ?? 'r2') === 'r2').map(({ binding, bucket_name, jurisdiction, preview_bucket_name }) => ({
     binding, bucket_name, ...(jurisdiction ? { jurisdiction } : {}), ...(preview_bucket_name ? { preview_bucket_name } : {}),
   }));
   config.vars = {
     ...config.vars,
-    BUCKETS: override.buckets.map(({ id, label, binding }) => ({ id, label, binding })),
+    BUCKETS: override.buckets.map(bucket => bucket.type === 's3'
+      ? { id: bucket.id, label: bucket.label, type: 's3', provider: bucket.provider, bucketName: bucket.bucket_name,
+        endpoint: bucket.endpoint, region: bucket.region, addressing: bucket.addressing,
+        accessKeyIdSecret: bucket.access_key_id_secret, secretAccessKeySecret: bucket.secret_access_key_secret,
+        ...(bucket.session_token_secret ? { sessionTokenSecret: bucket.session_token_secret } : {}) }
+      : { id: bucket.id, label: bucket.label, binding: bucket.binding }),
     ACCESS_TEAM_DOMAIN: local ? '' : access.team_domain,
     ACCESS_AUD: local ? '' : access.audience,
     LOCAL_DEV: local ? 'true' : 'false',

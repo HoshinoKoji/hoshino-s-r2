@@ -27,7 +27,7 @@ try {
     throw new Error('Use --override for configuration; dev is local-only');
   }
   const config = await generate(override, local);
-  console.log(`Generated TOML for ${config.name}: ${config.r2_buckets.length} buckets (${local ? 'local-only authentication' : 'Access JWT authentication'})`);
+  console.log(`Generated TOML for ${config.name}: ${config.vars.BUCKETS.length} buckets (${local ? 'local-only authentication' : 'Access JWT authentication'})`);
   if (command !== 'config') {
     const ext = process.platform === 'win32' ? '.cmd' : '';
     await run(resolve(root, `node_modules/.bin/vite${ext}`), ['build']);

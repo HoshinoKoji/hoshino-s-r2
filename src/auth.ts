@@ -1,7 +1,11 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ApiError } from './http';
 
-export interface BucketConfig { id: string; label: string; binding: string }
+export type BucketConfig = { id: string; label: string; binding: string; type?: 'r2' } | {
+  id: string; label: string; type: 's3'; provider: 's3' | 'cos'; bucketName: string;
+  endpoint: string; region: string; addressing: 'path' | 'virtual';
+  accessKeyIdSecret: string; secretAccessKeySecret: string; sessionTokenSecret?: string;
+};
 export interface Env {
   ASSETS: Fetcher;
   BUCKETS: BucketConfig[];

@@ -1,0 +1,26 @@
+# Synthetic S3-only configuration for Wrangler dry-run. Do not deploy.
+[worker]
+name = "hoshino-s3-dry-run"
+account_id = "11111111111111111111111111111111"
+workers_dev = false
+preview_urls = false
+
+[[worker.routes]]
+pattern = "files.example.com"
+custom_domain = true
+
+[access]
+team_domain = "https://example.cloudflareaccess.com"
+audience = "2222222222222222222222222222222222222222222222222222222222222222"
+
+[[buckets]]
+id = "cos"
+label = "合成 COS"
+type = "s3"
+provider = "cos"
+bucket_name = "example-1250000000"
+endpoint = "https://cos.ap-guangzhou.myqcloud.com"
+region = "ap-guangzhou"
+addressing = "virtual"
+access_key_id_secret = "COS_SECRET_ID"
+secret_access_key_secret = "COS_SECRET_KEY"
