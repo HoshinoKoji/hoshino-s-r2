@@ -1,0 +1,27 @@
+# Copy to deploy.override.toml in each fork. No secrets belong in this file.
+[worker]
+name = "my-r2-web"
+account_id = "REPLACE_WITH_32_CHARACTER_ACCOUNT_ID"
+workers_dev = false
+preview_urls = false
+
+[[worker.routes]]
+pattern = "files.example.com"
+custom_domain = true
+
+[access]
+team_domain = "https://my-team.cloudflareaccess.com"
+audience = "REPLACE_WITH_ACCESS_APPLICATION_AUD"
+
+[[buckets]]
+id = "documents"
+label = "文档"
+binding = "R2_DOCUMENTS"
+bucket_name = "my-documents"
+
+[[buckets]]
+id = "archives"
+label = "归档"
+binding = "R2_ARCHIVES"
+bucket_name = "my-archives"
+# jurisdiction = "eu"

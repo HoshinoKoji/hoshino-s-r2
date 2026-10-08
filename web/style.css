@@ -1,0 +1,9 @@
+:root {
+  font-synthesis: none;
+  --app-surface: var(--mantine-color-body);
+  --app-border: var(--mantine-color-default-border);
+}
+body { margin: 0; }
+button, a { touch-action: manipulation; }
+button, input, a, textarea { -webkit-tap-highlight-color: transparent; }
+::selection { background: var(--mantine-color-blue-light); }

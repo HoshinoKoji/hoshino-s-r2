@@ -1,0 +1,73 @@
+.shell {
+  --app-surface: var(--mantine-color-body);
+  --app-border: var(--mantine-color-default-border);
+  background: light-dark(#f6f8fb, #101113);
+  min-height: 100vh;
+}
+
+.header { background: var(--app-surface); }
+.sidebar { background: var(--app-surface); overflow-y: auto; }
+.content { max-width: 1500px; margin: 0 auto; padding: 30px; }
+.pageHeading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
+.identityButton { max-width: 260px; }
+.identityText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bucketLink { border-radius: var(--mantine-radius-md); margin-bottom: 5px; }
+.settings { background: light-dark(#f8fafc, #1a1b1e); margin-top: 30px; }
+.concurrencySlider { margin: 4px 6px 24px; }
+.apiLink { display: block; padding: 18px 10px 0; }
+.secureIcon { color: var(--mantine-color-teal-6); flex-shrink: 0; }
+.panel { overflow: hidden; background: var(--app-surface); margin-bottom: 20px; box-shadow: 0 2px 6px rgb(0 0 0 / 2%); }
+.panelHeader { padding: 18px 22px; border-bottom: 1px solid var(--app-border); }
+.browserToolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 22px; }
+.breadcrumbs { min-width: 0; flex-wrap: wrap; row-gap: 6px; overflow-wrap: anywhere; }
+.breadcrumbs > * { max-width: 100%; white-space: normal; }
+.filterForm { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 22px 22px; }
+.filterInput { flex: 1; min-width: 220px; }
+.selectionBar { padding: 10px 22px; border-top: 1px solid var(--app-border); background: var(--mantine-color-blue-light); }
+.fileTable { table-layout: fixed; }
+.fileTable thead { background: light-dark(#f8fafc, #1a1b1e); }
+.fileTable th { font-size: 12px; color: var(--mantine-color-dimmed); font-weight: 600; }
+.fileTable tr[data-selected] { background: var(--mantine-color-blue-light); }
+.fileName { font-size: var(--mantine-font-size-sm); font-weight: 500; overflow-wrap: anywhere; text-align: left; min-width: 0; }
+.fileName:hover { color: var(--mantine-color-blue-text); }
+.fileName:disabled { cursor: default; opacity: .6; }
+.fileIcon { color: var(--mantine-color-dimmed); flex-shrink: 0; }
+.downloadButton { flex-shrink: 0; }
+.folderIcon { color: var(--mantine-color-yellow-6); }
+.nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.emptyState { padding: 48px 24px 56px; }
+.tableFooter { padding: 16px 22px; border-top: 1px solid var(--app-border); }
+.transferEmpty { padding: 24px 22px; display: flex; flex-direction: column; gap: 5px; }
+.task { padding: 20px 22px; }
+.task + .task { border-top: 1px solid var(--app-border); }
+.taskContent { flex: 1; min-width: 0; }
+.breakWord { overflow-wrap: anywhere; white-space: pre-wrap; }
+.metadata { margin: 0; }
+.metadata > div { margin-bottom: 24px; }
+.metadata dt { font-size: 12px; color: var(--mantine-color-dimmed); margin-bottom: 6px; }
+.metadata dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.codeInput, .cliHint { font-family: var(--mantine-font-family-monospace); font-size: 12px; }
+.cliHint { white-space: pre-wrap; overflow-wrap: anywhere; }
+.warningIcon { flex-shrink: 0; color: var(--mantine-color-red-6); }
+.keyList { border: 1px solid var(--app-border); border-radius: var(--mantine-radius-md); padding: 12px; background: light-dark(#f8fafc, #1a1b1e); }
+.mobileOverlay { display: none; }
+
+@media (max-width: 62em) {
+  .pageHeading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .content { padding: 24px; }
+}
+
+@media (max-width: 48em) {
+  .shell .sidebar { width: 280px; }
+  .content { padding: 18px 12px; }
+  .header { padding-inline: 0; }
+  .identityButton { width: 36px; padding: 0; }
+  .identityButton [data-position="right"], .identityText { display: none; }
+  .identityButton [data-position="left"] { margin: 0; }
+  .browserToolbar { padding: 16px; flex-wrap: wrap; }
+  .filterForm { padding: 0 16px 16px; gap: 10px; }
+  .filterInput { min-width: 180px; }
+  .panelHeader, .tableFooter, .task, .transferEmpty { padding: 16px; }
+  .selectionBar { padding: 10px 16px; }
+  .mobileOverlay { display: block; position: fixed; inset: 72px 0 0; z-index: 99; border: 0; background: rgb(0 0 0 / 35%); }
+}
